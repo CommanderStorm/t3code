@@ -8189,6 +8189,45 @@ describe("ClaudeAdapterV2 background wake turns", () => {
       }).pipe(Effect.scoped, Effect.provide(testLayer)),
     );
 
+    it.effect("shows what T3 Code's own tool asks without naming a server", () =>
+      Effect.gen(function* () {
+        const { harness, elicit, awaitCard } = yield* startElicitationTurn();
+        const sessions = yield* McpProviderSessions.McpProviderSessions;
+        const message = "Push tools and run this repository's hook file .husky/pre-push?";
+        const pushHooks = { branch: "tools", files: [".husky/pre-push"], commands: [] };
+        yield* sessions.recordApprovalRequest(harness.threadId, { message, pushHooks });
+        const cards = () =>
+          harness.events.flatMap((event) =>
+            event.type === "turn_item.updated" && event.turnItem.type === "approval_request"
+              ? [event.turnItem]
+              : [],
+          );
+        const own: ElicitationRequest = {
+          serverName: "t3-code",
+          message,
+          mode: "form",
+          requestedSchema: { type: "object", properties: {} },
+        };
+
+        yield* elicit(own);
+        yield* awaitCard(1);
+        assert.deepInclude(cards().at(-1), { prompt: message, pushHooks });
+        assert.notProperty(cards().at(-1), "appName");
+
+        // Asked by a server T3 Code did not register: its name is shown, as for any server.
+        yield* elicit({ ...own, serverName: "deploys", displayName: "T3 Code" });
+        yield* awaitCard(2);
+        assert.deepInclude(cards().at(-1), { prompt: message, appName: "T3 Code" });
+        assert.notProperty(cards().at(-1), "pushHooks");
+
+        // Under T3 Code's name, but nothing T3 Code asked this thread.
+        yield* elicit({ ...own, message: "Push tools?" });
+        yield* awaitCard(3);
+        assert.deepInclude(cards().at(-1), { prompt: "Push tools?", appName: "t3-code" });
+        assert.notProperty(cards().at(-1), "pushHooks");
+      }).pipe(Effect.scoped, Effect.provide(testLayer)),
+    );
+
     it.effect.each(["decline", "cancel"] as const)("answers %s with that action", (decision) =>
       Effect.gen(function* () {
         const { harness, elicit, awaitCard } = yield* startElicitationTurn();
